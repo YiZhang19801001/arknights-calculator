@@ -3,17 +3,66 @@ import {
   Calculator,
   Calendar,
   Clock,
+  Gem,
   Plus,
+  Target,
   TrendingUp,
 } from 'lucide-react';
 import { useState } from 'react';
-import { levels } from './assets/data.ts';
+import { levels } from './assets/data';
+
+type Results = {
+  hours: string;
+  totalMinutes: number;
+  totalDays: number;
+  totalWeeks: number;
+  naturalRegen: number;
+  extraSanity: number;
+  weeklySanityPotions: number;
+  totalSanityUsed: number;
+  finalLevel: number;
+  finalReputation: string;
+  levelUps: { level: number; sanityReward: number; reputation: number }[];
+  totalSanityFromLevelUp: number;
+  // 抽卡相关
+  targetPulls: number;
+  totalOrundum: number;
+  dailyOrundum: number;
+  weeklyOrundum: number;
+  freeOrundum: number;
+  orundumGap: number;
+  needOriginite: number;
+  sanityPerOriginite: string | number;
+};
 
 const ArkCalc = () => {
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [extraSanity, setExtraSanity] = useState(0);
-  const [results, setResults] = useState(null);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [extraSanity, setExtraSanity] = useState<number>(0);
+  const [targetPulls, setTargetPulls] = useState<number>(0);
+  const [results, setResults] = useState<Results | null>(null);
+
+  // 计算跨越的周数（只要在周内就算）
+  const getWeeksInRange = (start: Date, end: Date) => {
+    const weeks = new Set();
+    const current = new Date(start);
+
+    while (current <= end) {
+      // 计算当前日期所属的周（使用年份+周数作为唯一标识）
+      const year = current.getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const days = Math.floor(
+        (current.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000)
+      );
+      const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+      weeks.add(`${year}-W${weekNumber}`);
+
+      // 移动到下一天
+      current.setDate(current.getDate() + 1);
+    }
+
+    return weeks.size;
+  };
 
   const calculate = () => {
     if (!startDate || !endDate) {
@@ -29,9 +78,20 @@ const ArkCalc = () => {
       return;
     }
 
-    const totalMinutes = Math.floor((end - start) / (1000 * 60));
+    const totalMinutes = Math.floor(
+      (end.getTime() - start.getTime()) / (1000 * 60)
+    );
+    const totalDays = Math.floor(
+      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const totalWeeks = getWeeksInRange(start, end);
     const hours = (totalMinutes / 60).toFixed(2);
-    const naturalRegen = Math.floor(totalMinutes / 6); // 每6分钟回复1理智
+
+    // 计算自然恢复理智
+    const naturalRegen = Math.floor(totalMinutes / 6);
+
+    // 计算周常理智药剂奖励
+    const weeklySanityPotions = totalWeeks * 2 * 120; // 每周2个，每个120理智
 
     let currentSanity = 127; // 初始理智
     let currentLevel = 1;
@@ -39,23 +99,21 @@ const ArkCalc = () => {
     let totalSanityUsed = 0;
     let levelUps = [];
 
-    // 可用的总理智 = 初始理智 + 自然恢复 + 额外理智
-    let availableSanity = currentSanity + naturalRegen + extraSanity;
+    // 可用的总理智 = 初始理智 + 自然恢复 + 额外理智 + 周常理智药剂
+    let availableSanity =
+      currentSanity + naturalRegen + extraSanity + weeklySanityPotions;
 
     // 模拟使用理智和升级过程
     while (availableSanity > 0) {
-      // 使用1点理智
       availableSanity--;
       totalSanityUsed++;
-      currentReputation += 12; // 1理智=12声望
+      currentReputation += 12;
 
-      // 检查是否升级
       const currentLevelData = levels[currentLevel - 1];
       if (
         currentLevel < 50 &&
         currentReputation >= currentLevelData.reqReputation
       ) {
-        // 升级
         currentReputation -= currentLevelData.reqReputation;
         currentLevel++;
         const newLevelData = levels[currentLevel - 1];
@@ -67,16 +125,28 @@ const ArkCalc = () => {
           reputation: currentReputation,
         });
 
-        // 获得升级奖励的理智
         availableSanity += sanityReward;
       }
     }
 
+    // 计算抽卡相关
+    const totalOrundum = targetPulls * 600; // 需要的总合成玉
+    const dailyOrundum = totalDays * 100; // 每日100合成玉
+    const weeklyOrundum = totalWeeks * 500; // 每周500合成玉
+    const freeOrundum = dailyOrundum + weeklyOrundum; // 免费合成玉
+    const orundumGap = Math.max(0, totalOrundum - freeOrundum); // 缺口
+    const needOriginite = Math.ceil(orundumGap / 180); // 需要刷的源石数量
+    const sanityPerOriginite =
+      needOriginite > 0 ? (totalSanityUsed / needOriginite).toFixed(2) : 0;
+
     setResults({
       hours,
       totalMinutes,
+      totalDays,
+      totalWeeks,
       naturalRegen,
       extraSanity,
+      weeklySanityPotions,
       totalSanityUsed,
       finalLevel: currentLevel,
       finalReputation: currentReputation.toFixed(1),
@@ -85,6 +155,15 @@ const ArkCalc = () => {
         (sum, lu) => sum + lu.sanityReward,
         0
       ),
+      // 抽卡相关
+      targetPulls,
+      totalOrundum,
+      dailyOrundum,
+      weeklyOrundum,
+      freeOrundum,
+      orundumGap,
+      needOriginite,
+      sanityPerOriginite,
     });
   };
 
@@ -130,6 +209,21 @@ const ArkCalc = () => {
 
             <div>
               <label className="block text-slate-300 text-lg mb-3">
+                <Target className="inline w-5 h-5 mr-2" />
+                目标抽数
+              </label>
+              <input
+                type="number"
+                value={targetPulls}
+                onChange={(e) => setTargetPulls(Number(e.target.value))}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min="0"
+                placeholder="输入需要的抽数"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 text-lg mb-3">
                 <Plus className="inline w-5 h-5 mr-2" />
                 额外获得理智（邮件、商店购买等）
               </label>
@@ -160,11 +254,25 @@ const ArkCalc = () => {
                 </h2>
                 <div className="text-slate-300 space-y-2">
                   <p>
-                    游玩时长:{' '}
+                    游玩时长:
                     <span className="font-bold text-white">
                       {results.hours}
-                    </span>{' '}
+                    </span>
                     小时 ({results.totalMinutes} 分钟)
+                  </p>
+                  <p>
+                    总天数:
+                    <span className="font-bold text-white">
+                      {results.totalDays}
+                    </span>
+                    天
+                  </p>
+                  <p>
+                    跨越周数:
+                    <span className="font-bold text-white">
+                      {results.totalWeeks}
+                    </span>
+                    周
                   </p>
                 </div>
               </div>
@@ -191,6 +299,15 @@ const ArkCalc = () => {
                   </div>
 
                   <div className="bg-slate-800/50 rounded-lg p-4">
+                    <div className="text-slate-400 text-sm mb-1">
+                      周常理智药剂
+                    </div>
+                    <div className="text-2xl font-bold text-cyan-400">
+                      {results.weeklySanityPotions}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800/50 rounded-lg p-4">
                     <div className="text-slate-400 text-sm mb-1">额外理智</div>
                     <div className="text-2xl font-bold text-orange-400">
                       {results.extraSanity}
@@ -213,7 +330,8 @@ const ArkCalc = () => {
                     {results.totalSanityUsed}
                   </div>
                   <div className="text-slate-400 text-xs mt-1">
-                    = 127 + {results.naturalRegen} + {results.extraSanity} +{' '}
+                    = 127 + {results.naturalRegen} +
+                    {results.weeklySanityPotions} + {results.extraSanity} +
                     {results.totalSanityFromLevelUp}
                   </div>
                 </div>
@@ -228,18 +346,119 @@ const ArkCalc = () => {
                 <div className="mt-4 bg-slate-800/50 rounded-lg p-4">
                   <div className="text-slate-400 text-sm mb-1">最终状态</div>
                   <div className="text-white text-lg">
-                    等级{' '}
+                    等级
                     <span className="font-bold text-blue-400">
                       {results.finalLevel}
-                    </span>{' '}
-                    | 声望{' '}
+                    </span>
+                    | 声望
                     <span className="font-bold text-yellow-400">
                       {results.finalReputation}
-                    </span>{' '}
+                    </span>
                     / {levels[results.finalLevel - 1].reqReputation}
                   </div>
                 </div>
               </div>
+
+              {results.targetPulls > 0 && (
+                <div className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 rounded-xl p-6 border border-amber-600/50">
+                  <h2 className="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2">
+                    <Gem className="w-6 h-6" />
+                    抽卡资源分析
+                  </h2>
+
+                  <div className="space-y-4">
+                    <div className="bg-slate-800/50 rounded-lg p-4">
+                      <div className="text-slate-400 text-sm mb-1">
+                        目标抽数
+                      </div>
+                      <div className="text-2xl font-bold text-white">
+                        {results.targetPulls} 抽
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/50 rounded-lg p-4">
+                      <div className="text-slate-400 text-sm mb-1">
+                        需要合成玉总量
+                      </div>
+                      <div className="text-2xl font-bold text-amber-400">
+                        {results.totalOrundum.toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-slate-400 text-sm mb-1">
+                          日常合成玉
+                        </div>
+                        <div className="text-xl font-bold text-green-400">
+                          {results.dailyOrundum}
+                        </div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          {results.totalDays}天 × 100
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-slate-400 text-sm mb-1">
+                          周常合成玉
+                        </div>
+                        <div className="text-xl font-bold text-cyan-400">
+                          {results.weeklyOrundum}
+                        </div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          {results.totalWeeks}周 × 500
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/50 rounded-lg p-4">
+                      <div className="text-slate-400 text-sm mb-1">
+                        免费合成玉总计
+                      </div>
+                      <div className="text-2xl font-bold text-emerald-400">
+                        {results.freeOrundum.toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/50 rounded-lg p-4">
+                      <div className="text-slate-400 text-sm mb-1">
+                        合成玉缺口
+                      </div>
+                      <div className="text-2xl font-bold text-red-400">
+                        {results.orundumGap.toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/50 rounded-lg p-4">
+                      <div className="text-slate-400 text-sm mb-1">
+                        需要刷的源石数量
+                      </div>
+                      <div className="text-2xl font-bold text-purple-400">
+                        {results.needOriginite}
+                      </div>
+                      <div className="text-slate-500 text-xs mt-1">
+                        每源石 = 180合成玉
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg p-6 border border-purple-500/50">
+                      <div className="text-slate-300 text-sm mb-2">
+                        ⭐ 平均每个源石需要的理智
+                      </div>
+                      <div className="text-4xl font-bold text-pink-400">
+                        {results.sanityPerOriginite}
+                      </div>
+                      <div className="text-slate-400 text-sm mt-2">
+                        也就是说，平均每关卡需要消耗
+                        <span className="text-pink-300 font-bold">
+                          {results.sanityPerOriginite}
+                        </span>
+                        理智才能满足抽卡需求
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {results.levelUps.length > 0 && (
                 <div className="bg-slate-700/50 rounded-xl p-6 border border-slate-600">
@@ -253,10 +472,10 @@ const ArkCalc = () => {
                         key={idx}
                         className="bg-slate-800/50 rounded-lg p-3 text-slate-300"
                       >
-                        升至 Lv.{lu.level} → 获得{' '}
+                        升至 Lv.{lu.level} → 获得
                         <span className="text-green-400 font-bold">
                           {lu.sanityReward}
-                        </span>{' '}
+                        </span>
                         理智
                       </div>
                     ))}
@@ -267,8 +486,12 @@ const ArkCalc = () => {
           )}
         </div>
 
-        <div className="mt-6 text-center text-slate-400 text-sm">
+        <div className="mt-6 text-center text-slate-400 text-sm space-y-1">
           <p>初始理智: 127 | 恢复速度: 6分钟/1理智 | 转化率: 1理智=12声望</p>
+          <p>
+            1抽=600合成玉 | 1源石=180合成玉 | 每周奖励:
+            2理智药剂(240理智)+500合成玉 | 每日奖励: 100合成玉
+          </p>
         </div>
       </div>
     </div>
